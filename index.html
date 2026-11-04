@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<title>Расчёт галстука-бабочки</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: инструмент-форма, где данные вводятся в форме самой «бабочки»: причины слева, событие в центре, рассчитанные последствия справа.
+   Цвета следуют отраслевой условности bow-tie: синие причины, оранжевое событие, красные последствия. */
+:root {
+  --bg: #E9EDF1; --surface: #FAFBFC; --sunken: #DFE5EB; --ink: #141B23; --ink2: #434F5C; --muted: #5E6A77; --line: #C6CFD8;
+  --threat: #1F5FA8; --cons: #A52A45; --knot: #EE9328; --on-knot: #1C1204;
+  --ok: #17693F; --ok-bg: #D5EDDF; --warn: #855300; --warn-bg: #F8E7BF; --crit: #A81F18; --crit-bg: #F8D6D2;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", Roboto, Arial, sans-serif;
+  --mono: "IBM Plex Mono", Consolas, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10151B; --surface: #18202A; --sunken: #0C1015; --ink: #E8EDF2; --ink2: #B4BFCA; --muted: #93A0AD; --line: #303C49;
+  --threat: #74ADEC; --cons: #EE7D95; --knot: #F0A040; --on-knot: #1C1204;
+  --ok: #68D29B; --ok-bg: #143324; --warn: #E9B955; --warn-bg: #3A2C0C; --crit: #F58B83; --crit-bg: #421A17; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #10151B; --surface: #18202A; --sunken: #0C1015; --ink: #E8EDF2; --ink2: #B4BFCA; --muted: #93A0AD; --line: #303C49;
+  --threat: #74ADEC; --cons: #EE7D95; --knot: #F0A040; --on-knot: #1C1204;
+  --ok: #68D29B; --ok-bg: #143324; --warn: #E9B955; --warn-bg: #3A2C0C; --crit: #F58B83; --crit-bg: #421A17; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 var(--body); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.wrap { max-width: 1280px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 14px 48px; display: grid; gap: 14px; }
+.wrap, .panel, .sheet, .col, .card, .bars, .bar, .tie, .two, .cols, .f { grid-template-columns: minmax(0, 1fr); }
+h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wrap: balance; }
+h1 { font-size: 24px; font-weight: 700; }
+h2 { font-size: 20px; font-weight: 600; }
+h3 { font-size: 16px; font-weight: 600; }
+p { margin: 0; }
+.mono, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.dim { color: var(--muted); }
+
+header.top { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+button, select, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 7px 12px; min-height: 38px; }
+button:hover { border-color: var(--ink2); }
+button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 500; }
+button.link { border: 1px dashed var(--line); background: transparent; color: var(--ink2); width: 100%; }
+button.x { width: 38px; padding: 0; color: var(--muted); background: transparent; border-color: transparent; font-size: 18px; flex: none; }
+button.x:hover { color: var(--crit); border-color: var(--line); }
+:focus-visible { outline: 2px solid var(--threat); outline-offset: 2px; }
+select, input, textarea { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; min-height: 38px; width: 100%; font-size: 16px; }
+select { width: auto; max-width: 100%; }
+input.num { font-size: 15px; }
+input.bad { border-color: var(--crit); background: var(--crit-bg); }
+.f { display: grid; gap: 3px; min-width: 0; }
+.f > span { font-size: 12.5px; color: var(--ink2); }
+.err { color: var(--crit); font-size: 12.5px; }
+
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.kpi { background: var(--surface); padding: 10px 14px; min-width: 0; display: grid; gap: 2px; align-content: start; }
+.kpi b { font: 500 22px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+.kpi b.t { font: 600 18px/1.25 var(--display); }
+.kpi small { color: var(--muted); font-size: 12.5px; }
+.kpi .lbl { font: 600 12.5px/1.2 var(--display); letter-spacing: .03em; text-transform: uppercase; color: var(--ink2); }
+@media (max-width: 720px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kpi { padding: 8px 10px; } .kpi b { font-size: 16px; } .kpi b.t { font-size: 15px; } .kpi .lbl { font-size: 11.5px; } .kpi:last-child { grid-column: span 2; } }
+
+.pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 4px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.lv-low { background: var(--ok-bg); color: var(--ok); }
+.lv-mid { background: var(--warn-bg); color: var(--warn); }
+.lv-high { background: var(--crit-bg); color: var(--crit); }
+
+nav.tabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; gap: 4px; background: var(--bg); padding-block: 6px; overflow-x: auto; border-bottom: 2px solid var(--ink); }
+nav.tabs button { border: 0; background: transparent; border-radius: 6px 6px 0 0; font: 600 15px var(--display); padding: 7px 14px; color: var(--ink2); flex: none; }
+nav.tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
+
+.panel { display: grid; gap: 14px; min-width: 0; }
+.sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 10px; min-width: 0; }
+.scroll { overflow-x: auto; min-width: 0; }
+
+/* Схема */
+.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
+.diagram svg { display: block; margin: 0 auto; height: auto; }
+svg text { fill: var(--ink); font-family: var(--body); }
+svg .t-name { font-size: 12.5px; font-weight: 500; }
+svg .t-gate { font-size: 11.5px; fill: var(--ink2); }
+svg .t-val { font-family: var(--mono); font-size: 11.5px; fill: var(--ink2); }
+svg .t-out { font-family: var(--mono); font-size: 12px; font-weight: 500; }
+svg .t-knot { font: 700 14px var(--display); fill: var(--on-knot); }
+svg .t-knotv { font: 500 12px var(--mono); fill: var(--on-knot); }
+svg .box { fill: var(--surface); stroke-width: 1.5; }
+svg .box-t { stroke: var(--threat); }
+svg .box-c { stroke: var(--cons); }
+svg .flow-t { stroke: var(--threat); fill: none; opacity: .55; }
+svg .flow-c { stroke: var(--cons); fill: none; opacity: .55; }
+svg .gate { fill: var(--ink); stroke: var(--surface); stroke-width: 2; }
+svg [data-go] { cursor: pointer; }
+svg [data-go]:hover .box, svg [data-go]:hover .gate { stroke-width: 3; }
+svg [data-go]:focus-visible { outline: 2px solid var(--threat); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--ink2); }
+.legend i { display: inline-block; vertical-align: -1px; margin-right: 6px; }
+
+/* Данные: форма в форме бабочки */
+.tie { display: grid; gap: 14px; align-items: start; }
+.tie .mid { order: -1; }
+@media (min-width: 980px) { .tie { grid-template-columns: minmax(0, 1.3fr) 250px minmax(0, 1fr); } .tie .mid { order: 0; position: sticky; top: 64px; } }
+.col { display: grid; gap: 10px; min-width: 0; }
+.col > h2 { padding-bottom: 4px; border-bottom: 3px solid; }
+.col.l > h2 { border-color: var(--threat); }
+.col.r > h2 { border-color: var(--cons); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 9px; min-width: 0; }
+.row { display: flex; gap: 8px; align-items: end; min-width: 0; }
+.row > .f { flex: 1; }
+.bars { display: grid; gap: 8px; background: var(--sunken); border-radius: 6px; padding: 8px; margin-top: 6px; }
+.bar { display: grid; gap: 6px; }
+.bar + .bar { border-top: 1px solid var(--line); padding-top: 8px; }
+.bar-main { display: grid; grid-template-columns: minmax(0, 1fr) 38px; gap: 6px; align-items: end; }
+.bar-main > .f:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+details summary { cursor: pointer; font-size: 13.5px; color: var(--ink2); }
+.out { font-size: 13.5px; }
+.out .num { font-weight: 500; }
+.knotcard { background: var(--knot); color: var(--on-knot); border-radius: 8px; padding: 12px; display: grid; gap: 8px; }
+.knotcard .f > span { color: var(--on-knot); font-weight: 600; font-size: 14px; }
+.knotcard textarea { resize: vertical; min-height: 84px; background: #FFF8EC; color: #1C1204; border-color: #B46A12; color-scheme: light; }
+.knotcard .num { font-weight: 500; }
+
+/* Расчёт */
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th { text-align: left; font: 600 12.5px var(--display); letter-spacing: .02em; color: var(--ink2); border-bottom: 2px solid var(--line); padding: 6px 8px; vertical-align: bottom; }
+td { border-bottom: 1px solid var(--line); padding: 7px 8px; vertical-align: top; }
+td.num, th.r { text-align: right; white-space: nowrap; }
+.formula { font: 13.5px/1.6 var(--mono); overflow-wrap: anywhere; }
+.formula b { font-weight: 500; }
+.step { display: grid; gap: 6px; padding-block: 8px; border-top: 1px solid var(--line); }
+.step:first-of-type { border-top: 0; }
+.meter { display: block; height: 6px; background: var(--sunken); border-radius: 3px; margin-top: 4px; }
+.meter i { display: block; height: 100%; background: var(--threat); border-radius: 3px; }
+.two { display: grid; gap: 14px; }
+@media (min-width: 900px) { .two { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: start; } }
+.matrix { display: grid; grid-template-columns: 72px repeat(5, minmax(34px, 1fr)); gap: 2px; font-size: 12.5px; min-width: 260px; }
+.matrix .h { color: var(--ink2); display: flex; align-items: center; justify-content: center; text-align: center; padding: 3px; line-height: 1.15; }
+.matrix .h.y { justify-content: flex-end; text-align: right; font-family: var(--mono); font-size: 11.5px; }
+.cell { min-height: 46px; border-radius: 3px; display: flex; flex-wrap: wrap; gap: 3px; align-items: center; justify-content: center; padding: 3px; }
+.dot { width: 24px; height: 24px; border-radius: 50%; background: var(--ink); color: var(--bg); font: 600 12.5px/24px var(--body); text-align: center; }
+.no { display: inline-block; width: 21px; height: 21px; border-radius: 50%; background: var(--ink); color: var(--bg); font: 600 12px/21px var(--body); text-align: center; margin-right: 6px; }
+.checks { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.checks li { display: flex; gap: 8px; align-items: baseline; }
+.checks li::before { content: "▲"; color: var(--warn); font-size: 11px; flex: none; }
+.checks li.good::before { content: "✓"; color: var(--ok); font-size: 14px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+textarea.code { font: 12.5px/1.4 var(--mono); min-height: 84px; resize: vertical; }
+
+/* Справка */
+.prose { display: grid; gap: 10px; max-width: 70ch; }
+.prose ol, .prose ul { margin: 0; padding-left: 22px; display: grid; gap: 5px; }
+.cols { display: grid; gap: 14px; }
+@media (min-width: 900px) { .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+
+#toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 20; background: var(--ink); color: var(--bg); border-radius: 8px; padding: 8px 8px 8px 14px; display: flex; gap: 12px; align-items: center; max-width: calc(100vw - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.3); }
+#toast button { background: transparent; color: inherit; border-color: currentColor; }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg width="46" height="28" viewBox="0 0 46 28" aria-hidden="true"><path d="M2 3 L18 12 V16 L2 25 Z" fill="var(--threat)"/><path d="M44 3 L28 12 V16 L44 25 Z" fill="var(--cons)"/><circle cx="23" cy="14" r="6.5" fill="var(--knot)"/></svg>
+      <h1>Галстук-бабочка</h1>
+    </div>
+    <div class="tools">
+      <select id="sample" aria-label="Загрузить пример"></select>
+      <button id="blank" type="button">Чистый лист</button>
+    </div>
+  </header>
+
+  <section class="kpis" id="kpis" aria-live="polite"></section>
+
+  <nav class="tabs" role="tablist" aria-label="Разделы">
+    <button role="tab" data-tab="data" type="button">Ввод</button>
+    <button role="tab" data-tab="scheme" type="button">Схема</button>
+    <button role="tab" data-tab="calc" type="button">Расчёт</button>
+    <button role="tab" data-tab="help" type="button">Справка</button>
+  </nav>
+
+  <section class="panel" id="tab-data" hidden>
+    <div id="editor"></div>
+  </section>
+
+  <section class="panel" id="tab-scheme" hidden>
+    <div class="sheet" style="padding-block:10px"><div id="caption"></div></div>
+    <div class="diagram" id="diagram"></div>
+    <div class="legend">
+      <span><i style="width:26px;height:6px;background:var(--threat);opacity:.55"></i>Толщина линии: частота, логарифмическая шкала</span>
+      <span><i style="width:7px;height:16px;background:var(--ink);vertical-align:-3px"></i>Барьер и его вероятность отказа</span>
+      <span>Нажмите на причину или событие, чтобы изменить их</span>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-calc" hidden>
+    <div id="calc" class="panel"></div>
+    <div class="sheet">
+      <h2>Сохранить и передать</h2>
+      <p class="dim">Отчёт можно вставить в работу. Код содержит весь анализ: его можно отправить преподавателю или однокурснику, и он откроет те же данные.</p>
+      <div class="actions">
+        <button id="copyReport" class="primary" type="button">Скопировать отчёт</button>
+        <button id="copyCode" type="button">Скопировать код анализа</button>
+      </div>
+      <label class="f"><span>Вставьте сюда полученный код, чтобы открыть анализ</span>
+        <textarea id="codeBox" class="code" spellcheck="false"></textarea></label>
+      <div class="actions"><button id="loadCode" type="button">Открыть анализ из кода</button><span class="err" id="codeErr" hidden></span></div>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-help" hidden>
+    <div class="cols">
+      <div class="sheet prose">
+        <h2>Как пользоваться</h2>
+        <p>Метод «галстук-бабочка» (bow-tie) показывает один риск целиком: что вызывает нежелательное событие и к чему оно приводит. Метод описан в ГОСТ Р 58771-2019 (МЭК 31010).</p>
+        <ol>
+          <li>Опишите событие: момент, когда ситуация вышла из-под контроля.</li>
+          <li>Перечислите причины и укажите, сколько раз в год каждая возникает.</li>
+          <li>Если причину что-то сдерживает, добавьте барьер. Это необязательно.</li>
+          <li>Посмотрите последствия и уровень риска: они рассчитаются сами.</li>
+        </ol>
+        <h3>Формулы</h3>
+        <div class="formula">
+          F<sub>причины</sub> = f × ∏ PFD<br>
+          F<sub>события</sub> = Σ F<sub>причины</sub><br>
+          F<sub>последствия</sub> = F<sub>события</sub> × p
+        </div>
+        <p class="dim">f: частота причины, раз в год. PFD: вероятность отказа барьера, от 0 до 1. p: доля событий с таким исходом.</p>
+      </div>
+      <div class="panel">
+        <div class="sheet prose">
+          <h2>Откуда берутся последствия</h2>
+          <p>Приложение не знает, что именно случится при вашем событии. Оно делит все события на три типовых исхода с постоянными долями:</p>
+          <div class="scroll"><table id="outcomeTable"></table></div>
+          <p class="dim">Эти доли условные и одинаковы для любого события. Поэтому результат подходит для учебной оценки, но не заменяет анализ конкретных последствий.</p>
+        </div>
+        <div class="sheet">
+          <h2>Ориентиры для PFD</h2>
+          <div class="scroll"><table>
+            <thead><tr><th>Тип барьера</th><th class="r">PFD</th></tr></thead>
+            <tbody>
+              <tr><td>Правило или инструктаж без контроля</td><td class="num">0,3–1</td></tr>
+              <tr><td>Действие человека по сигналу, есть время и обучение</td><td class="num">0,1</td></tr>
+              <tr><td>Обычная автоматика</td><td class="num">0,1</td></tr>
+              <tr><td>Пассивная защита или устройство защиты</td><td class="num">0,01–0,1</td></tr>
+            </tbody>
+          </table></div>
+          <p class="dim">Это порядок величин для учебных оценок. Барьеры считаются независимыми.</p>
+        </div>
+        <div class="sheet prose">
+          <h2>Уровень риска</h2>
+          <p class="dim">Балл частоты от 1 до 5 × тяжесть исхода. До 4: приемлемый. От 5 до 9: снижать. От 10: недопустимый. Матрица учебная, в организации действуют свои критерии.</p>
+          <p class="dim">Данные хранятся только на вашем устройстве.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+<div id="toast" role="status" hidden></div>
+
+<script>
+(function () {
+'use strict';
+var KEY = 'bowtie-model-v2', TAB_KEY = 'bowtie-tab-v2';
+var FREQ = ['< 0,001', '0,001–0,01', '0,01–0,1', '0,1–1', '≥ 1'];
+var LV = { low: ['Приемлемый', '✓'], mid: ['Снижать', '▲'], high: ['Недопустимый', '■'] };
+/* Типовые исходы события: доля p и тяжесть от 1 до 5. Чтобы изменить модель последствий, поменяйте эту таблицу. */
+var OUTCOMES = [
+  { name: 'Малые последствия', hint: 'быстро устраняются своими силами', p: 0.7, sev: 2 },
+  { name: 'Серьёзные последствия', hint: 'заметный ущерб, нужно восстановление', p: 0.25, sev: 4 },
+  { name: 'Катастрофические последствия', hint: 'тяжёлый, трудно обратимый ущерб', p: 0.05, sev: 5 }
+];
+
+function uid() { return 'x' + Math.random().toString(36).slice(2, 9); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function clamp01(x, d) { x = Number(x); return isFinite(x) ? Math.min(1, Math.max(0, x)) : d; }
+function nonneg(x, d) { x = Number(x); return isFinite(x) && x >= 0 ? x : d; }
+
+/* Примеры: [причина, частота, [[барьер, PFD]...]] */
+var SAMPLES = [
+  { top: 'Возгорание на складе', threats: [
+    ['Неисправность электропроводки', 0.2, [['Плановая термография', 0.2], ['Автоматические выключатели и УЗО', 0.05]]],
+    ['Открытый огонь и курение', 0.5, [['Запрет и контроль на входе', 0.3], ['Инструктаж персонала', 0.5]]],
+    ['Поджог', 0.02, [['Видеонаблюдение и охрана', 0.3], ['Контроль доступа', 0.1]]]] },
+  { top: 'Утечка персональных данных', threats: [
+    ['Фишинг против сотрудников', 4, [['Почтовый фильтр', 0.2], ['Двухфакторный вход', 0.05], ['Обучение сотрудников', 0.5]]],
+    ['Ошибка настройки облака', 0.5, [['Автопроверка конфигурации', 0.1], ['Внешний аудит', 0.3]]],
+    ['Действия инсайдера', 0.1, [['Разграничение прав', 0.2], ['DLP-система', 0.3]]]] },
+  { top: 'Сырьё не поступило к сроку', threats: [
+    ['Перебои логистики', 2, [['Резервный перевозчик', 0.3], ['Буфер времени в графике', 0.4]]],
+    ['Брак в партии', 1, [['Входной контроль у поставщика', 0.2], ['Аудит качества', 0.5]]],
+    ['Банкротство поставщика', 0.05, [['Мониторинг финансов партнёра', 0.4], ['Второй поставщик', 0.1]]]] }
+];
+function hydrate(s) {
+  return { top: s.top, threats: s.threats.map(function (t) {
+    return { id: uid(), name: t[0], f: t[1], barriers: t[2].map(function (b) { return { id: uid(), name: b[0], pfd: b[1] }; }) };
+  }) };
+}
+function blankModel() { return { top: '', threats: [{ id: uid(), name: '', f: 1, barriers: [] }] }; }
+function normalize(m) {
+  if (!m || typeof m !== 'object' || !Array.isArray(m.threats)) throw new Error('bad model');
+  return { top: String(m.top || ''), threats: m.threats.map(function (t) {
+    return { id: uid(), name: String(t.name || ''), f: nonneg(t.f, 1), barriers: (Array.isArray(t.barriers) ? t.barriers : []).map(function (b) {
+      return { id: uid(), name: String(b.name || ''), pfd: clamp01(b.pfd, 0.1) };
+    }) };
+  }) };
+}
+
+/* ---------- Расчёт ---------- */
+function eff(b, failId) { return b.id === failId ? 1 : b.pfd; }
+function freqScore(F) { return F >= 1 ? 5 : F >= 0.1 ? 4 : F >= 0.01 ? 3 : F >= 0.001 ? 2 : 1; }
+function levelOf(score) { return score <= 4 ? 'low' : score <= 9 ? 'mid' : 'high'; }
+function calc(m, failId) {
+  var top = 0;
+  var threats = m.threats.map(function (t) {
+    var out = t.f;
+    t.barriers.forEach(function (b) { out *= eff(b, failId); });
+    top += out;
+    return { t: t, out: out };
+  });
+  var cons = OUTCOMES.map(function (c) {
+    var out = top * c.p, fs = freqScore(out), score = fs * c.sev;
+    return { c: c, out: out, fs: fs, score: score, level: levelOf(score) };
+  });
+  return { threats: threats, top: top, cons: cons };
+}
+function ranking(m, base) {
+  var rows = [];
+  m.threats.forEach(function (t) {
+    t.barriers.forEach(function (b) {
+      var v = calc(m, b.id).top;
+      rows.push({ b: b, owner: t.name, ratio: base.top > 0 ? v / base.top : null });
+    });
+  });
+  rows.sort(function (a, b) { return (b.ratio || 0) - (a.ratio || 0); });
+  return rows;
+}
+function checks(m) {
+  var out = [], seen = {}, noName = 0;
+  if (!m.top.trim()) out.push('Не описано само событие.');
+  if (!m.threats.length) out.push('Нет ни одной причины, поэтому частота события равна нулю.');
+  m.threats.forEach(function (t) {
+    if (!t.name.trim()) noName++;
+    t.barriers.forEach(function (b) {
+      var n = b.name.trim().toLowerCase();
+      if (!n) noName++; else seen[n] = (seen[n] || 0) + 1;
+      if (b.pfd >= 1) out.push('Барьер «' + (b.name || 'без названия') + '» с PFD = 1 ничего не снижает.');
+      else if (b.pfd < 0.001) out.push('Барьер «' + (b.name || 'без названия') + '»: PFD ниже 0,001 выглядит слишком оптимистично.');
+    });
+  });
+  Object.keys(seen).forEach(function (n) { if (seen[n] > 1) out.push('Барьер «' + n + '» встречается ' + seen[n] + ' раза. При общем отказе он не независим, и результат занижен.'); });
+  if (noName) out.push('Элементов без названия: ' + noName + '.');
+  return out;
+}
+
+/* ---------- Форматирование ---------- */
+var SUP = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '-': '⁻' };
+function fx(x, sig) { return x.toLocaleString('ru-RU', { maximumSignificantDigits: sig || 3 }); }
+function num(x) {
+  if (x === 0) return '0';
+  var a = Math.abs(x);
+  if (a >= 0.001 && a < 1e6) return fx(x);
+  var e = Math.floor(Math.log10(a)), m = x / Math.pow(10, e);
+  if (Number(m.toFixed(1)) === 10) { m = 1; e += 1; }
+  var ex = String(e).replace(/./g, function (c) { return SUP[c]; });
+  return (Number(m.toFixed(1)) === 1 ? '' : fx(Number(m.toFixed(1)), 2) + '·') + '10' + ex;
+}
+function years(n) {
+  var r = Math.round(n), t = r % 100, u = r % 10;
+  if (t >= 11 && t <= 14) return 'лет';
+  if (u === 1) return 'год';
+  return u >= 2 && u <= 4 ? 'года' : 'лет';
+}
+function recur(F) {
+  if (F <= 0) return 'не происходит';
+  if (F >= 1) return Number(F.toPrecision(2)) === 1 ? 'раз в год' : '≈ ' + fx(F, 2) + ' раза в год';
+  var n = 1 / F, v = n < 10 ? Math.round(n * 10) / 10 : Number(n.toPrecision(2));
+  if (v < 10 && v % 1 !== 0) return 'раз в ' + fx(v, 2) + ' года';
+  return 'раз в ' + fx(v, 2) + ' ' + years(v);
+}
+function pct(p) { return fx(p * 100, 3) + ' %'; }
+function pill(level) { return '<span class="pill lv-' + level + '"><span aria-hidden="true">' + LV[level][1] + '</span>' + LV[level][0] + '</span>'; }
+function nm(s, d) { return s && s.trim() ? s.trim() : (d || 'Без названия'); }
+
+/* ---------- Состояние ---------- */
+var model, tab = 'data', openBars = {};
+function save() { try { localStorage.setItem(KEY, JSON.stringify(model)); } catch (e) {} }
+function load() {
+  try { var s = localStorage.getItem(KEY); if (s) return normalize(JSON.parse(s)); } catch (e) {}
+  return hydrate(SAMPLES[0]);
+}
+function find(id) {
+  if (id === 'root') return model;
+  for (var j = 0; j < model.threats.length; j++) {
+    var o = model.threats[j];
+    if (o.id === id) return o;
+    var b = o.barriers.filter(function (x) { return x.id === id; })[0];
+    if (b) return b;
+  }
+  return null;
+}
+var toastTimer;
+function toast(text, undo) {
+  var el = document.getElementById('toast');
+  el.innerHTML = '<span>' + esc(text) + '</span>' + (undo ? '<button type="button">Вернуть</button>' : '');
+  el.hidden = false;
+  if (undo) el.querySelector('button').onclick = function () { undo(); el.hidden = true; };
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { el.hidden = true; }, undo ? 7000 : 2500);
+}
+function withUndo(text, fn) {
+  var snap = JSON.stringify(model);
+  fn();
+  renderAll();
+  toast(text, function () { model = normalize(JSON.parse(snap)); renderAll(); });
+}
+
+/* ---------- Ввод ---------- */
+function txt(o, f, label, ph) {
+  return '<label class="f"><span>' + label + '</span><input id="' + o.id + '-' + f + '" data-o="' + o.id + '" data-f="' + f + '" value="' + esc(o[f]) + '" placeholder="' + esc(ph || '') + '"></label>';
+}
+function nf(o, f, label, min, max) {
+  var v = String(o[f]).replace('.', ',');
+  return '<label class="f"><span>' + label + '</span><input class="num" inputmode="decimal" autocomplete="off" id="' + o.id + '-' + f + '" data-o="' + o.id + '" data-f="' + f + '" data-min="' + min + '"' + (max != null ? ' data-max="' + max + '"' : '') + ' value="' + esc(v) + '"><small class="err" hidden></small></label>';
+}
+function barsHtml(t) {
+  return '<details data-bars="' + t.id + '"' + (openBars[t.id] ? ' open' : '') + '><summary>Барьеры' + (t.barriers.length ? ': ' + t.barriers.length : ', если есть') + '</summary><div class="bars">' + t.barriers.map(function (b) {
+    return '<div class="bar"><div class="bar-main">' + txt(b, 'name', 'Что сдерживает причину', 'Например, сигнализация') + nf(b, 'pfd', 'Вероятность отказа, от 0 до 1', 0, 1) +
+      '<button class="x" type="button" data-del="' + b.id + '" aria-label="Удалить барьер">×</button></div></div>';
+  }).join('') + '<button class="link" type="button" data-addbar="' + t.id + '">+ Добавить барьер</button></div></details>';
+}
+function renderEditor() {
+  var h = '<div class="tie"><div class="col l"><h2>Причины</h2>' + model.threats.map(function (t) {
+    return '<div class="card"><div class="row">' + txt(t, 'name', 'Причина', 'Что может вызвать событие') +
+      '<button class="x" type="button" data-del="' + t.id + '" aria-label="Удалить причину">×</button></div>' +
+      nf(t, 'f', 'Сколько раз в год возникает', 0) + barsHtml(t) +
+      '<div class="out" data-out="' + t.id + '"></div></div>';
+  }).join('') + '<button class="link" type="button" id="addThreat">+ Добавить причину</button></div>';
+  h += '<div class="col mid"><div class="knotcard"><label class="f"><span>Событие</span><textarea id="root-top" data-o="root" data-f="top" placeholder="Что произошло: момент потери контроля">' + esc(model.top) + '</textarea></label><div class="out" data-out="root"></div></div></div>';
+  h += '<div class="col r"><h2>Последствия считаются сами</h2><div id="autoCons" class="col"></div></div></div>';
+  document.getElementById('editor').innerHTML = h;
+}
+function setOut(id, html) { var el = document.querySelector('[data-out="' + id + '"]'); if (el) el.innerHTML = html; }
+function updateOuts(r) {
+  r.threats.forEach(function (x) { if (x.t.barriers.length) setOut(x.t.id, 'После барьеров: <span class="num">' + num(x.out) + '</span> в год, ' + recur(x.out)); else setOut(x.t.id, ''); });
+  setOut('root', 'Частота: <span class="num">' + num(r.top) + '</span> в год, ' + recur(r.top));
+  document.getElementById('autoCons').innerHTML = r.cons.map(function (x) {
+    return '<div class="card"><strong>' + x.c.name + '</strong><span class="dim" style="font-size:13px">' + x.c.hint + ', ' + pct(x.c.p) + ' событий</span>' +
+      '<div class="out"><span class="num">' + num(x.out) + '</span> в год, ' + recur(x.out) + '</div><div>' + pill(x.level) + '</div></div>';
+  }).join('');
+}
+
+/* ---------- Сводка ---------- */
+function renderKpis(r) {
+  var main = r.threats.slice().sort(function (a, b) { return b.out - a.out; })[0];
+  var worst = r.cons.slice().sort(function (a, b) { return b.score - a.score; })[0];
+  document.getElementById('kpis').innerHTML =
+    '<div class="kpi"><span class="lbl">Частота события</span><b>' + num(r.top) + ' /год</b><small>' + recur(r.top) + '</small></div>' +
+    '<div class="kpi"><span class="lbl">Главная причина</span>' + (main && r.top > 0 ? '<b class="t">' + esc(nm(main.t.name)) + '</b><small>' + pct(main.out / r.top) + ' частоты события</small>' : '<small>Добавьте причину</small>') + '</div>' +
+    '<div class="kpi"><span class="lbl">Наивысший риск</span><div>' + pill(worst.level) + '</div><small>' + esc(worst.c.name) + ': балл ' + worst.score + ' из 25</small></div>';
+  document.getElementById('caption').innerHTML = '<h2>' + esc(nm(model.top, 'Новое событие')) + '</h2>' + (isSample() ? '<p class="dim">Учебный пример, все числа условные. Замените их своими на вкладке «Ввод».</p>' : '');
+}
+function isSample() { return SAMPLES.some(function (s) { return s.top === model.top; }); }
+
+/* ---------- Схема ---------- */
+function wrap(text, n, lines) {
+  var out = [], cur = '';
+  String(text).trim().split(/\s+/).forEach(function (w) {
+    while (w.length > n) { if (cur) { out.push(cur); cur = ''; } out.push(w.slice(0, n - 1) + '-'); w = w.slice(n - 1); }
+    if ((cur + ' ' + w).trim().length > n) { out.push(cur); cur = w; } else cur = (cur + ' ' + w).trim();
+  });
+  if (cur) out.push(cur);
+  if (out.length > lines) { out = out.slice(0, lines); out[lines - 1] = out[lines - 1].replace(/[\s-]*$/, '').slice(0, n - 1) + '…'; }
+  return out;
+}
+function tspans(lines, x, y, lh, cls, anchor) {
+  return '<text class="' + cls + '" x="' + x + '" y="' + y + '"' + (anchor ? ' text-anchor="' + anchor + '"' : '') + '>' +
+    lines.map(function (l, i) { return '<tspan x="' + x + '" dy="' + (i ? lh : 0) + '">' + esc(l) + '</tspan>'; }).join('') + '</text>';
+}
+function flowW(f) { return f <= 0 ? 1.5 : Math.max(1.5, Math.min(16, 2 + 2 * (Math.log10(f) + 6))); }
+function gate(b, cx, y, ownerId) {
+  var name = wrap(nm(b.name, 'Барьер'), 15, 3), top = y - 28 - (name.length - 1) * 13;
+  return '<g data-go="' + b.id + '-pfd" data-owner="' + ownerId + '" tabindex="0" role="button" aria-label="Изменить барьер: ' + esc(nm(b.name)) + '"><title>' + esc(nm(b.name)) + '</title>' +
+    '<rect class="gate" x="' + (cx - 6) + '" y="' + (y - 22) + '" width="12" height="44" rx="2"/>' +
+    tspans(name, cx, top, 13, 't-gate', 'middle') +
+    '<text class="t-val" x="' + cx + '" y="' + (y + 38) + '" text-anchor="middle">×' + esc(num(b.pfd)) + '</text></g>';
+}
+function schemeSvg(r) {
+  var slot = 104, box = 172, row = 128;
+  var maxL = Math.max.apply(null, [0].concat(model.threats.map(function (t) { return t.barriers.length; })));
+  var x0 = box + 8, L = x0 + 20 + maxL * slot + 74, kx = L + 100, R0 = kx + 100, Rend = R0 + 84, W = Rend + box + 28;
+  var nMax = Math.max(model.threats.length, r.cons.length);
+  var ky = Math.max(96, 14 + nMax * row / 2), H = ky + Math.max(nMax * row / 2, 82) + 14;
+  var s = '';
+  function yAt(i, n) { return ky + (i - (n - 1) / 2) * row; }
+
+  r.threats.forEach(function (x, i) {
+    var t = x.t, y = yAt(i, r.threats.length), f = t.f, px = x0, gates = '', segs = '';
+    t.barriers.forEach(function (b, j) {
+      var cx = x0 + 20 + (j + 0.5) * slot;
+      segs += '<line class="flow-t" x1="' + px + '" y1="' + y + '" x2="' + cx + '" y2="' + y + '" stroke-width="' + flowW(f) + '"/>';
+      gates += gate(b, cx, y, t.id);
+      f *= b.pfd; px = cx;
+    });
+    var w = flowW(f);
+    s += segs + '<line class="flow-t" x1="' + px + '" y1="' + y + '" x2="' + L + '" y2="' + y + '" stroke-width="' + w + '"/>' +
+      '<path class="flow-t" d="M' + L + ' ' + y + ' C' + (L + 50) + ' ' + y + ' ' + (kx - 60) + ' ' + ky + ' ' + kx + ' ' + ky + '" stroke-width="' + w + '"/>' + gates;
+    s += '<g data-go="' + t.id + '-name" tabindex="0" role="button" aria-label="Изменить причину: ' + esc(nm(t.name)) + '"><title>' + esc(nm(t.name)) + '</title>' +
+      '<rect class="box box-t" x="4" y="' + (y - 38) + '" width="' + (box - 4) + '" height="76" rx="6"/>' +
+      tspans(wrap(nm(t.name, 'Причина'), 22, 3), 14, y - 19, 15, 't-name') +
+      '<text class="t-val" x="14" y="' + (y + 30) + '">f = ' + esc(num(t.f)) + ' /год</text></g>';
+    s += '<text class="t-out" x="' + (L + 4) + '" y="' + (y - 12) + '" text-anchor="end">' + esc(num(x.out)) + '</text>';
+  });
+
+  r.cons.forEach(function (x, i) {
+    var c = x.c, y = yAt(i, r.cons.length), lv = LV[x.level];
+    s += '<path class="flow-c" d="M' + kx + ' ' + ky + ' C' + (kx + 60) + ' ' + ky + ' ' + (R0 - 50) + ' ' + y + ' ' + R0 + ' ' + y + '" stroke-width="' + flowW(x.out) + '"/>' +
+      '<line class="flow-c" x1="' + R0 + '" y1="' + y + '" x2="' + Rend + '" y2="' + y + '" stroke-width="' + flowW(x.out) + '"/>';
+    s += '<g><rect class="box box-c" x="' + Rend + '" y="' + (y - 44) + '" width="' + (box + 16) + '" height="88" rx="6"/>' +
+      tspans(wrap(c.name, 24, 2), Rend + 10, y - 25, 15, 't-name') +
+      '<text class="t-val" x="' + (Rend + 10) + '" y="' + (y + 13) + '">доля ' + esc(pct(c.p)) + ', тяжесть ' + c.sev + '</text>' +
+      '<text x="' + (Rend + 10) + '" y="' + (y + 32) + '" style="font-size:12.5px;font-weight:600;fill:var(--' + (x.level === 'low' ? 'ok' : x.level === 'mid' ? 'warn' : 'crit') + ')">' + lv[1] + ' ' + lv[0] + '</text></g>';
+    s += '<text class="t-out" x="' + (Rend - 4) + '" y="' + (y - 12) + '" text-anchor="end">' + esc(num(x.out)) + '</text>';
+  });
+
+  var kn = wrap(nm(model.top, 'Событие'), 15, 3);
+  s += '<g data-go="root-top" tabindex="0" role="button" aria-label="Изменить событие"><title>' + esc(nm(model.top)) + '</title>' +
+    '<circle cx="' + kx + '" cy="' + ky + '" r="66" fill="var(--knot)" stroke="var(--surface)" stroke-width="3"/>' +
+    tspans(kn, kx, ky - 8 - (kn.length - 1) * 8, 16, 't-knot', 'middle') +
+    '<text class="t-knotv" x="' + kx + '" y="' + (ky + 8 + kn.length * 8) + '" text-anchor="middle">' + esc(num(r.top)) + ' /год</text></g>';
+  return '<svg role="img" aria-label="Схема галстука-бабочки: причины, барьеры, событие и последствия" viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;min-width:' + Math.round(W * 0.74) + 'px;max-width:' + W + 'px">' + s + '</svg>';
+}
+function centerDiagram() {
+  var d = document.getElementById('diagram'), svg = d.querySelector('svg');
+  if (svg && d.scrollWidth > d.clientWidth) {
+    var g = svg.querySelector('[data-go="root-top"]');
+    if (g) { var a = g.getBoundingClientRect(), b = d.getBoundingClientRect(); d.scrollLeft += a.left + a.width / 2 - b.left - b.width / 2; }
+  }
+}
+
+/* ---------- Вкладка «Расчёт» ---------- */
+function chain(t) {
+  var parts = [num(t.f)];
+  t.barriers.forEach(function (b) { parts.push(num(b.pfd)); });
+  return parts.join(' × ');
+}
+function renderCalc(r) {
+  var rows = ranking(model, r), chk = checks(model), h = '';
+  h += '<div class="sheet"><h2>Шаг 1. Частота события</h2>';
+  r.threats.forEach(function (x) {
+    var share = r.top > 0 ? x.out / r.top : 0;
+    h += '<div class="step"><strong>' + esc(nm(x.t.name, 'Причина')) + '</strong><div class="formula">' + chain(x.t) + ' = <b>' + num(x.out) + '</b> /год</div>' +
+      '<div class="dim" style="font-size:13px">Доля в частоте события: ' + pct(share) + '<span class="meter"><i style="width:' + (share * 100).toFixed(1) + '%"></i></span></div></div>';
+  });
+  h += '<div class="step"><strong>Сумма по всем причинам</strong><div class="formula">F = ' + (r.threats.map(function (x) { return num(x.out); }).join(' + ') || '0') + ' = <b>' + num(r.top) + '</b> /год (' + recur(r.top) + ')</div></div></div>';
+
+  h += '<div class="sheet"><h2>Шаг 2. Последствия и риск</h2>';
+  r.cons.forEach(function (x, i) {
+    h += '<div class="step"><strong><span class="no">' + (i + 1) + '</span>' + x.c.name + '</strong><div class="formula">' + num(r.top) + ' × ' + num(x.c.p) + ' = <b>' + num(x.out) + '</b> /год</div></div>';
+  });
+  h += '<div class="scroll"><table><thead><tr><th>Последствие</th><th class="r">Частота, /год</th><th>Повторяемость</th><th class="r">Балл</th><th>Риск</th></tr></thead><tbody>' +
+    r.cons.map(function (x, i) {
+      return '<tr><td style="min-width:150px"><span class="no">' + (i + 1) + '</span>' + x.c.name + '</td><td class="num mono">' + num(x.out) + '</td><td style="min-width:110px">' + recur(x.out) + '</td><td class="num mono">' + x.fs + '×' + x.c.sev + '=' + x.score + '</td><td>' + pill(x.level) + '</td></tr>';
+    }).join('') + '</tbody></table></div></div>';
+
+  h += '<div class="two"><div class="sheet"><h2>Матрица риска</h2><div class="scroll"><div class="matrix" role="img" aria-label="Матрица риска, значения продублированы в таблице выше"><div class="h">Частота, /год</div>' +
+    [1, 2, 3, 4, 5].map(function (n) { return '<div class="h">' + n + '</div>'; }).join('');
+  for (var fs = 5; fs >= 1; fs--) {
+    h += '<div class="h y">' + FREQ[fs - 1] + '</div>';
+    for (var sv = 1; sv <= 5; sv++) {
+      var marks = '';
+      r.cons.forEach(function (x, i) { if (x.fs === fs && x.c.sev === sv) marks += '<span class="dot" title="' + esc(x.c.name) + '">' + (i + 1) + '</span>'; });
+      h += '<div class="cell lv-' + levelOf(fs * sv) + '" title="Балл ' + (fs * sv) + ': ' + LV[levelOf(fs * sv)][0] + '">' + marks + '</div>';
+    }
+  }
+  h += '<div></div><div class="h" style="grid-column:span 5">Тяжесть, от 1 до 5</div></div></div><div class="legend"><span>' + pill('low') + ' балл до 4</span><span>' + pill('mid') + ' балл 5–9</span><span>' + pill('high') + ' балл от 10</span></div></div>';
+
+  h += '<div class="panel">';
+  if (rows.length) {
+    h += '<div class="sheet"><h2>Какие барьеры важнее всего</h2><p class="dim">Во сколько раз вырастет частота события, если барьер перестанет работать совсем.</p>' +
+      '<div class="scroll"><table><thead><tr><th>Барьер</th><th class="r">PFD</th><th class="r">Рост</th></tr></thead><tbody>' +
+      rows.slice(0, 8).map(function (x) {
+        return '<tr><td style="min-width:170px">' + esc(nm(x.b.name)) + '<br><span class="dim" style="font-size:12.5px">' + esc(nm(x.owner)) + '</span></td><td class="num mono">' + num(x.b.pfd) + '</td><td class="num mono">' + (x.ratio == null ? '—' : '×' + fx(x.ratio, 3)) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+  }
+  h += '<div class="sheet"><h2>Что проверить</h2><ul class="checks">' +
+    (chk.length ? chk.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('') : '<li class="good">Замечаний нет.</li>') + '</ul></div></div></div>';
+  document.getElementById('calc').innerHTML = h;
+}
+
+/* ---------- Экспорт ---------- */
+function report() {
+  var r = calc(model, null), rows = ranking(model, r), L = [];
+  L.push('АНАЛИЗ РИСКА МЕТОДОМ «ГАЛСТУК-БАБОЧКА»');
+  L.push('Событие: ' + nm(model.top, '—'));
+  L.push('', 'ПРИЧИНЫ');
+  r.threats.forEach(function (x) {
+    L.push('- ' + nm(x.t.name) + ': ' + chain(x.t) + ' = ' + num(x.out) + ' /год');
+    x.t.barriers.forEach(function (b) { L.push('    барьер: ' + nm(b.name) + ', PFD = ' + num(b.pfd)); });
+  });
+  L.push('', 'Частота события: ' + num(r.top) + ' /год, ' + recur(r.top));
+  L.push('', 'ПОСЛЕДСТВИЯ (типовые исходы, условные доли)');
+  r.cons.forEach(function (x) {
+    L.push('- ' + x.c.name + ': ' + num(r.top) + ' × ' + num(x.c.p) + ' = ' + num(x.out) + ' /год, ' + recur(x.out) + ', балл ' + x.score + ', риск: ' + LV[x.level][0].toLowerCase());
+  });
+  if (rows.length) {
+    L.push('', 'ВАЖНЕЙШИЕ БАРЬЕРЫ');
+    rows.slice(0, 5).forEach(function (x, i) { L.push((i + 1) + '. ' + nm(x.b.name) + (x.ratio == null ? '' : ': при отказе рост в ' + fx(x.ratio, 3) + ' раза')); });
+  }
+  return L.join('\n');
+}
+function encode(m) {
+  var strip = JSON.parse(JSON.stringify(m), function (k, v) { return k === 'id' ? undefined : v; });
+  return 'BT2.' + btoa(unescape(encodeURIComponent(JSON.stringify(strip))));
+}
+function decode(s) {
+  s = s.trim().replace(/\s+/g, '');
+  if (s.indexOf('BT2.') !== 0) throw new Error('prefix');
+  return normalize(JSON.parse(decodeURIComponent(escape(atob(s.slice(4))))));
+}
+function copyText(text, done) {
+  var box = document.getElementById('codeBox');
+  function fallback() { box.value = text; box.focus(); box.select(); toast('Скопировать автоматически не вышло. Текст выделен в поле ниже.'); }
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast(done); }, fallback);
+  else fallback();
+}
+
+/* ---------- Отрисовка и события ---------- */
+function update() {
+  var r = calc(model, null);
+  renderKpis(r);
+  document.getElementById('diagram').innerHTML = schemeSvg(r);
+  renderCalc(r);
+  updateOuts(r);
+  save();
+}
+function renderAll() { renderEditor(); update(); document.getElementById('sample').value = ''; }
+function setTab(name) {
+  tab = name;
+  document.querySelectorAll('nav.tabs button').forEach(function (b) { b.setAttribute('aria-selected', b.dataset.tab === name ? 'true' : 'false'); });
+  ['data', 'scheme', 'calc', 'help'].forEach(function (n) { document.getElementById('tab-' + n).hidden = n !== name; });
+  try { localStorage.setItem(TAB_KEY, name); } catch (e) {}
+  if (name === 'scheme') centerDiagram();
+}
+function onField(el) {
+  var o = find(el.dataset.o), f = el.dataset.f;
+  if (!o) return;
+  if (el.dataset.min != null) {
+    var v = Number(el.value.trim().replace(',', '.')), min = Number(el.dataset.min), max = el.dataset.max != null ? Number(el.dataset.max) : null;
+    var ok = el.value.trim() !== '' && isFinite(v) && v >= min && (max == null || v <= max);
+    var hint = el.parentNode.querySelector('.err');
+    el.classList.toggle('bad', !ok);
+    el.setAttribute('aria-invalid', ok ? 'false' : 'true');
+    if (hint) { hint.hidden = ok; hint.textContent = max != null ? 'Введите число от ' + min + ' до ' + max : 'Введите число не меньше ' + min; }
+    if (!ok) return;
+    o[f] = v;
+  } else o[f] = el.value;
+  update();
+}
+
+document.getElementById('outcomeTable').innerHTML = '<thead><tr><th>Исход</th><th class="r">Доля</th><th class="r">Тяжесть</th></tr></thead><tbody>' +
+  OUTCOMES.map(function (c) { return '<tr><td>' + c.name + '</td><td class="num">' + pct(c.p) + '</td><td class="num">' + c.sev + '</td></tr>'; }).join('') + '</tbody>';
+
+var sel = document.getElementById('sample');
+sel.innerHTML = '<option value="">Открыть пример…</option>' + SAMPLES.map(function (s, i) { return '<option value="' + i + '">' + esc(s.top) + '</option>'; }).join('');
+sel.addEventListener('change', function () {
+  if (sel.value === '') return;
+  var s = SAMPLES[Number(sel.value)];
+  withUndo('Открыт пример «' + s.top + '»', function () { model = hydrate(s); });
+});
+document.getElementById('blank').addEventListener('click', function () {
+  withUndo('Создан чистый лист', function () { model = blankModel(); });
+  setTab('data');
+});
+document.querySelector('nav.tabs').addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) setTab(b.dataset.tab); });
+
+var editor = document.getElementById('editor');
+editor.addEventListener('input', function (e) { if (e.target.dataset.o) onField(e.target); });
+editor.addEventListener('toggle', function (e) { if (e.target.dataset && e.target.dataset.bars) openBars[e.target.dataset.bars] = e.target.open; }, true);
+editor.addEventListener('click', function (e) {
+  var b = e.target.closest('button');
+  if (!b) return;
+  if (b.id === 'addThreat') {
+    var nt = { id: uid(), name: '', f: 1, barriers: [] };
+    model.threats.push(nt); renderAll();
+    var ti = document.getElementById(nt.id + '-name'); if (ti) ti.focus();
+  } else if (b.dataset.addbar) {
+    var nb = { id: uid(), name: '', pfd: 0.1 };
+    openBars[b.dataset.addbar] = true;
+    find(b.dataset.addbar).barriers.push(nb); renderAll();
+    var ni = document.getElementById(nb.id + '-name'); if (ni) ni.focus();
+  } else if (b.dataset.del) {
+    var id = b.dataset.del;
+    withUndo('Удалено', function () {
+      model.threats = model.threats.filter(function (t) { return t.id !== id; });
+      model.threats.forEach(function (o) { o.barriers = o.barriers.filter(function (x) { return x.id !== id; }); });
+    });
+  }
+});
+
+function go(el) {
+  if (el.dataset.owner) { openBars[el.dataset.owner] = true; var d = document.querySelector('[data-bars="' + el.dataset.owner + '"]'); if (d) d.open = true; }
+  setTab('data');
+  var t = document.getElementById(el.dataset.go);
+  if (t) { t.scrollIntoView({ block: 'center' }); t.focus({ preventScroll: true }); }
+}
+var dia = document.getElementById('diagram');
+dia.addEventListener('click', function (e) { var g = e.target.closest('[data-go]'); if (g) go(g); });
+dia.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { var g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); go(g); } } });
+
+document.getElementById('copyReport').addEventListener('click', function () { copyText(report(), 'Отчёт скопирован'); });
+document.getElementById('copyCode').addEventListener('click', function () { copyText(encode(model), 'Код анализа скопирован'); });
+document.getElementById('loadCode').addEventListener('click', function () {
+  var err = document.getElementById('codeErr'), box = document.getElementById('codeBox'), m;
+  try { m = decode(box.value); } catch (e) { err.hidden = false; err.textContent = 'Код не распознан. Скопируйте его целиком, он начинается с BT2.'; return; }
+  err.hidden = true; box.value = '';
+  withUndo('Анализ открыт', function () { model = m; });
+  setTab('data');
+});
+
+/* Telegram Mini App: тема и размер окна. Вне Telegram этот блок не делает ничего. */
+var tg = window.Telegram && window.Telegram.WebApp;
+if (tg && tg.initData) { try { tg.ready(); tg.expand(); document.documentElement.setAttribute('data-theme', tg.colorScheme === 'dark' ? 'dark' : 'light'); } catch (e) {} }
+
+model = load();
+renderAll();
+var saved = null; try { saved = localStorage.getItem(TAB_KEY); } catch (e) {}
+setTab(saved && document.getElementById('tab-' + saved) ? saved : 'data');
+})();
+</script>
+</body>
+</html>
